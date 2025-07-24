@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Base model for all entities
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  subdomain   String   @unique
+  schema_name String   @unique
+  logo        String?
+  settings    Json?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations will be added as we implement other models
+  users User[]
+
+  @@map("tenants")
+}
+
+model User {
+  id         String   @id @default(cuid())
+  email      String
+  password   String
+  name       String
+  role       String   @default("USER")
+  is_active  Boolean  @default(true)
+  tenant_id  String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([email, tenant_id])
+  @@map("users")
+}

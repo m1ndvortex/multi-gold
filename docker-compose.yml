@@ -1,0 +1,94 @@
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: jewelry-saas-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: jewelry_saas
+      MYSQL_USER: jewelry_user
+      MYSQL_PASSWORD: jewelry_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - jewelry-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: jewelry-saas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jewelry-network
+    command: redis-server --appendonly yes
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jewelry-saas-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: mysql://jewelry_user:jewelry_password@mysql:3306/jewelry_saas
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-super-secret-jwt-key-for-development
+      JWT_REFRESH_SECRET: your-super-secret-refresh-key-for-development
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - jewelry-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jewelry-saas-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - jewelry-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: jewelry-saas-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+      - ./docker/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - jewelry-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  jewelry-network:
+    driver: bridge
