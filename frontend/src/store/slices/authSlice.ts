@@ -90,4 +90,28 @@ export const {
   updateUser,
 } = authSlice.actions;
 
+// Async login action (thunk)
+export const login = (credentials: { email: string; password: string }) => {
+  return async (dispatch: any) => {
+    dispatch(loginStart());
+    try {
+      // This would be replaced with actual API call
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Login failed');
+      }
+      
+      const data = await response.json();
+      dispatch(loginSuccess(data));
+    } catch (error) {
+      dispatch(loginFailure(error instanceof Error ? error.message : 'Login failed'));
+    }
+  };
+};
+
 export default authSlice.reducer;

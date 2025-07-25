@@ -10,38 +10,263 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Base model for all entities
-model Tenant {
-  id          String   @id @default(cuid())
-  name        String
-  subdomain   String   @unique
-  schema_name String   @unique
-  logo        String?
-  settings    Json?
-  is_active   Boolean  @default(true)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+// Enums
+enum SubscriptionPlan {
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
 
-  // Relations will be added as we implement other models
-  users User[]
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  TENANT_EMPLOYEE
+  CASHIER
+  ACCOUNTANT
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  EXPIRED
+}
+
+enum CustomerGroup {
+  REGULAR
+  VIP
+  WHOLESALER
+  RETAILER
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum LedgerEntryType {
+  DEBIT
+  CREDIT
+  OPENING_BALANCE
+  ADJUSTMENT
+}
+
+// Shared/Global Tables (not tenant-specific)
+model Tenant {
+  id                String           @id @default(cuid())
+  name              String
+  subdomain         String           @unique
+  schema_name       String           @unique
+  logo              String?
+  contact_email     String
+  contact_phone     String?
+  address           Json?
+  subscription_plan SubscriptionPlan @default(BASIC)
+  status            TenantStatus     @default(TRIAL)
+  trial_ends_at     DateTime?
+  settings          Json?
+  is_active         Boolean          @default(true)
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  // Relations
+  users             User[]
+  tenant_migrations TenantMigration[]
 
   @@map("tenants")
 }
 
 model User {
-  id         String   @id @default(cuid())
-  email      String
-  password   String
-  name       String
-  role       String   @default("USER")
-  is_active  Boolean  @default(true)
-  tenant_id  String
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  email                 String
+  password_hash         String
+  name                  String
+  role                  UserRole  @default(TENANT_EMPLOYEE)
+  permissions           Json?     // Custom permissions for flexible RBAC
+  two_factor_enabled    Boolean   @default(false)
+  two_factor_secret     String?
+  last_login            DateTime?
+  last_login_ip         String?
+  failed_login_attempts Int       @default(0)
+  locked_until          DateTime?
+  is_active             Boolean   @default(true)
+  tenant_id             String
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  // Relations
+  tenant       Tenant        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user_sessions UserSession[]
+
+  @@unique([email, tenant_id])
+  @@index([tenant_id])
+  @@index([email])
+  @@map("users")
+}
+
+model UserSession {
+  id           String    @id @default(cuid())
+  user_id      String
+  session_id   String    @unique
+  refresh_token String   @unique
+  device_info  Json?     // Browser, OS, IP, etc.
+  ip_address   String
+  is_active    Boolean   @default(true)
+  expires_at   DateTime
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([session_id])
+  @@index([expires_at])
+  @@map("user_sessions")
+}
+
+// Tenant Migration Tracking
+model TenantMigration {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  migration   String   // Migration name/version
+  executed_at DateTime @default(now())
 
   // Relations
   tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
-  @@unique([email, tenant_id])
-  @@map("users")
+  @@unique([tenant_id, migration])
+  @@map("tenant_migrations")
+}
+
+// System-wide configuration
+model SystemConfig {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  value      Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("system_config")
+}
+
+// Audit log for system-level operations
+model SystemAuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entity     String
+  entity_id  String?
+  user_id    String?
+  tenant_id  String?
+  ip_address String?
+  user_agent String?
+  details    Json?
+  created_at DateTime @default(now())
+
+  @@index([tenant_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("system_audit_logs")
+}
+
+// Customer Management Models (Tenant-specific)
+model Customer {
+  id                String        @id @default(cuid())
+  tenant_id         String
+  customer_code     String        // Auto-generated unique code per tenant
+  name              String
+  contact_person    String?
+  phone             String?
+  mobile            String?
+  email             String?
+  address           Json?         // Street, city, state, postal_code, country
+  tax_id            String?       // National ID or Tax ID
+  customer_group    CustomerGroup @default(REGULAR)
+  status            CustomerStatus @default(ACTIVE)
+  credit_limit      Decimal       @default(0) @db.Decimal(15, 2)
+  current_balance   Decimal       @default(0) @db.Decimal(15, 2)
+  opening_balance   Decimal       @default(0) @db.Decimal(15, 2)
+  tags              Json?         // Array of tags for categorization
+  notes             String?       @db.Text
+  birthday          DateTime?
+  anniversary       DateTime?
+  preferred_language String?      @default("fa")
+  communication_preferences Json? // Email, SMS, WhatsApp preferences
+  is_active         Boolean       @default(true)
+  created_by        String
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  deleted_at        DateTime?
+
+  // Relations
+  ledger_entries    CustomerLedgerEntry[]
+  // invoices          Invoice[]  // Will be added in invoice task
+  // transactions      Transaction[]  // Will be added in accounting task
+
+  @@unique([tenant_id, customer_code])
+  @@index([tenant_id])
+  @@index([tenant_id, name])
+  @@index([tenant_id, customer_group])
+  @@index([tenant_id, status])
+  @@index([tenant_id, created_at])
+  @@map("customers")
+}
+
+model CustomerLedgerEntry {
+  id              String           @id @default(cuid())
+  tenant_id       String
+  customer_id     String
+  entry_type      LedgerEntryType
+  amount          Decimal          @db.Decimal(15, 2)
+  currency        String           @default("IRR")
+  description     String
+  reference_type  String?          // INVOICE, PAYMENT, ADJUSTMENT, etc.
+  reference_id    String?          // ID of the related document
+  balance_after   Decimal          @db.Decimal(15, 2)
+  entry_date      DateTime         @default(now())
+  created_by      String
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+
+  // Relations
+  customer Customer @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([customer_id])
+  @@index([tenant_id, customer_id, entry_date])
+  @@index([tenant_id, entry_date])
+  @@map("customer_ledger_entries")
+}
+
+model CustomerTag {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  name        String
+  color       String?  // Hex color code for UI
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id])
+  @@map("customer_tags")
+}
+
+model CustomerImportLog {
+  id              String   @id @default(cuid())
+  tenant_id       String
+  filename        String
+  total_records   Int
+  success_count   Int
+  error_count     Int
+  errors          Json?    // Array of error details
+  imported_by     String
+  import_date     DateTime @default(now())
+  created_at      DateTime @default(now())
+
+  @@index([tenant_id])
+  @@index([tenant_id, import_date])
+  @@map("customer_import_logs")
 }

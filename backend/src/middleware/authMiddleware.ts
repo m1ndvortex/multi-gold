@@ -10,6 +10,7 @@ export interface AuthRequest extends TenantRequest {
     role: string;
     tenantId: string;
     permissions: string[];
+    twoFactorEnabled?: boolean;
   };
 }
 

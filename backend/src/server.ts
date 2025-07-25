@@ -5,14 +5,12 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
-import rateLimit from 'express-rate-limit';
 
 import { errorHandler } from '@/middleware/errorHandler';
 import { notFoundHandler } from '@/middleware/notFoundHandler';
-import { tenantMiddleware } from '@/middleware/tenantMiddleware';
-import { authMiddleware } from '@/middleware/authMiddleware';
+import { securityHeaders, requestSizeLimit, suspiciousActivityDetection, corsConfig } from '@/middleware/securityMiddleware';
 import { logger } from '@/utils/logger';
-import { connectDatabase } from '@/config/database';
+import { connectDatabase, initializeDatabase } from '@/config/database';
 import { connectRedis } from '@/config/redis';
 
 // Load environment variables
@@ -29,54 +27,38 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
     },
   },
+  crossOriginEmbedderPolicy: false,
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-  message: {
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again later.',
-    },
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Custom security headers
+app.use(securityHeaders);
 
-app.use(limiter);
+// Request size limiting
+app.use(requestSizeLimit('10mb'));
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com'] 
-    : ['http://localhost:3000', 'http://localhost:5173'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
-}));
+// Suspicious activity detection
+app.use(suspiciousActivityDetection);
+
+// CORS configuration with enhanced security
+app.use(cors(corsConfig));
 
 // General middleware
 app.use(compression());
-app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+app.use(morgan('combined', { 
+  stream: { write: (message) => logger.info(message.trim()) },
+  skip: (req) => req.url === '/health' // Skip health check logs
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
-  });
-});
+// Import main API routes
+import apiRoutes from '@/routes/index';
 
-// API routes will be added here
-app.use('/api/v1', tenantMiddleware);
+// API routes
+app.use('/api/v1', apiRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
@@ -90,6 +72,10 @@ async function startServer() {
     // Connect to database
     await connectDatabase();
     logger.info('Database connected successfully');
+
+    // Initialize database with system configuration
+    await initializeDatabase();
+    logger.info('Database initialized successfully');
 
     // Connect to Redis
     await connectRedis();
