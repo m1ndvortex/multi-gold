@@ -4,7 +4,7 @@
   "description": "Backend API for Jewelry SaaS Platform",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon -r tsconfig-paths/register src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
@@ -25,6 +25,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/speakeasy": "^2.0.10",
     "bcryptjs": "^2.4.3",
+    "bwip-js": "^4.7.0",
     "commander": "^11.1.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
@@ -41,8 +42,10 @@
     "multer": "^2.0.2",
     "prisma": "^5.6.0",
     "qrcode": "^1.5.4",
+    "qrcode-generator": "^2.0.2",
     "redis": "^4.6.10",
     "speakeasy": "^2.0.0",
+    "tsconfig-paths": "^4.2.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {
@@ -66,6 +69,6 @@
     "typescript": "^5.2.2"
   },
   "_moduleAliases": {
-    "@": "dist"
+    "@": "src"
   }
 }

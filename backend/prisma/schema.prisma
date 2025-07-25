@@ -52,6 +52,38 @@ enum LedgerEntryType {
   ADJUSTMENT
 }
 
+enum ProductCategory {
+  RAW_GOLD
+  JEWELRY
+  COINS
+  STONES
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum InventoryTransactionType {
+  PURCHASE
+  SALE
+  ADJUSTMENT
+  TRANSFER
+  PRODUCTION
+  WASTAGE
+  RETURN
+}
+
+enum AdjustmentReason {
+  DAMAGED
+  LOST
+  FOUND
+  EXPIRED
+  RECONCILIATION
+  OTHER
+}
+
 // Shared/Global Tables (not tenant-specific)
 model Tenant {
   id                String           @id @default(cuid())
@@ -269,4 +301,219 @@ model CustomerImportLog {
   @@index([tenant_id])
   @@index([tenant_id, import_date])
   @@map("customer_import_logs")
+}
+
+// Product and Inventory Management Models
+model Product {
+  id                  String          @id @default(cuid())
+  tenant_id           String
+  sku                 String          // Stock Keeping Unit
+  name                String
+  description         String?         @db.Text
+  category            ProductCategory
+  status              ProductStatus   @default(ACTIVE)
+  
+  // Physical properties
+  weight              Decimal?        @db.Decimal(10, 3) // in grams
+  purity              Decimal?        @db.Decimal(5, 2)  // percentage for gold
+  dimensions          Json?           // length, width, height, diameter
+  
+  // Pricing
+  manufacturing_cost  Decimal         @default(0) @db.Decimal(15, 2)
+  base_price          Decimal?        @db.Decimal(15, 2)
+  selling_price       Decimal?        @db.Decimal(15, 2)
+  
+  // Inventory
+  current_stock       Int             @default(0)
+  minimum_stock       Int             @default(0)
+  maximum_stock       Int?
+  reorder_point       Int?
+  
+  // Identification
+  barcode             String?         @unique
+  qr_code             String?
+  internal_code       String?
+  
+  // Metadata
+  tags                Json?           // Array of tags
+  images              Json?           // Array of image URLs
+  notes               String?         @db.Text
+  is_active           Boolean         @default(true)
+  created_by          String
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  deleted_at          DateTime?
+
+  // Relations
+  bom_items           BOMItem[]       @relation("ProductBOM")
+  bom_components      BOMItem[]       @relation("ComponentProduct")
+  inventory_transactions InventoryTransaction[]
+  stock_alerts        StockAlert[]
+  // invoice_items       InvoiceItem[]   // Will be added in invoice task
+
+  @@unique([tenant_id, sku])
+  @@unique([tenant_id, barcode])
+  @@index([tenant_id])
+  @@index([tenant_id, status])
+  @@index([tenant_id, current_stock])
+  @@index([tenant_id, name])
+  @@index([barcode])
+  @@map("products")
+}
+
+model BOMItem {
+  id              String   @id @default(cuid())
+  tenant_id       String
+  product_id      String   // Parent product
+  component_id    String   // Component product
+  quantity        Decimal  @db.Decimal(10, 3)
+  unit_cost       Decimal? @db.Decimal(15, 2)
+  wastage_percent Decimal  @default(0) @db.Decimal(5, 2)
+  notes           String?
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  // Relations
+  product   Product @relation("ProductBOM", fields: [product_id], references: [id], onDelete: Cascade)
+  component Product @relation("ComponentProduct", fields: [component_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, component_id])
+  @@index([tenant_id])
+  @@index([product_id])
+  @@index([component_id])
+  @@map("bom_items")
+}
+
+model InventoryTransaction {
+  id                String                   @id @default(cuid())
+  tenant_id         String
+  product_id        String
+  transaction_type  InventoryTransactionType
+  quantity          Decimal                  @db.Decimal(10, 3)
+  unit_cost         Decimal?                 @db.Decimal(15, 2)
+  total_cost        Decimal?                 @db.Decimal(15, 2)
+  
+  // Stock levels after transaction
+  stock_before      Int
+  stock_after       Int
+  
+  // Reference information
+  reference_type    String?                  // INVOICE, ADJUSTMENT, TRANSFER, etc.
+  reference_id      String?                  // ID of related document
+  reference_number  String?                  // Human-readable reference
+  
+  // Adjustment specific fields
+  adjustment_reason AdjustmentReason?
+  
+  // Transaction details
+  description       String
+  notes             String?                  @db.Text
+  transaction_date  DateTime                 @default(now())
+  created_by        String
+  created_at        DateTime                 @default(now())
+  updated_at        DateTime                 @updatedAt
+
+  // Relations
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([product_id])
+  @@index([tenant_id, transaction_date])
+  @@index([tenant_id, transaction_type])
+  @@index([reference_type, reference_id])
+  @@map("inventory_transactions")
+}
+
+model StockAlert {
+  id           String    @id @default(cuid())
+  tenant_id    String
+  product_id   String
+  alert_type   String    // LOW_STOCK, OUT_OF_STOCK, OVERSTOCK
+  threshold    Int
+  current_stock Int
+  message      String
+  is_resolved  Boolean   @default(false)
+  resolved_at  DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Relations
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([product_id])
+  @@index([tenant_id, is_resolved])
+  @@index([tenant_id, alert_type])
+  @@map("stock_alerts")
+}
+
+model InventoryAdjustment {
+  id              String           @id @default(cuid())
+  tenant_id       String
+  adjustment_number String         // Auto-generated unique number
+  reason          AdjustmentReason
+  description     String
+  notes           String?          @db.Text
+  total_items     Int              @default(0)
+  total_value     Decimal          @default(0) @db.Decimal(15, 2)
+  status          String           @default("PENDING") // PENDING, APPROVED, REJECTED
+  approved_by     String?
+  approved_at     DateTime?
+  created_by      String
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+
+  // Relations
+  items InventoryAdjustmentItem[]
+
+  @@unique([tenant_id, adjustment_number])
+  @@index([tenant_id])
+  @@index([tenant_id, status])
+  @@index([tenant_id, created_at])
+  @@map("inventory_adjustments")
+}
+
+model InventoryAdjustmentItem {
+  id                      String              @id @default(cuid())
+  tenant_id               String
+  adjustment_id           String
+  product_id              String
+  quantity_before         Int
+  quantity_adjusted       Int                 // Can be positive or negative
+  quantity_after          Int
+  unit_cost               Decimal?            @db.Decimal(15, 2)
+  total_value             Decimal             @db.Decimal(15, 2)
+  notes                   String?
+  created_at              DateTime            @default(now())
+  updated_at              DateTime            @updatedAt
+
+  // Relations
+  adjustment InventoryAdjustment @relation(fields: [adjustment_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([adjustment_id])
+  @@index([product_id])
+  @@map("inventory_adjustment_items")
+}
+
+model ProductCategoryCustom {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  name        String
+  description String?
+  parent_id   String?
+  sort_order  Int      @default(0)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Self-referential relation for hierarchical categories
+  parent   ProductCategoryCustom?  @relation("CategoryHierarchy", fields: [parent_id], references: [id])
+  children ProductCategoryCustom[] @relation("CategoryHierarchy")
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id])
+  @@index([tenant_id, parent_id])
+  @@map("product_categories")
 }

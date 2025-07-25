@@ -1,4 +1,3 @@
-import 'module-alias/register';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -6,12 +5,12 @@ import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
 
-import { errorHandler } from '@/middleware/errorHandler';
-import { notFoundHandler } from '@/middleware/notFoundHandler';
-import { securityHeaders, requestSizeLimit, suspiciousActivityDetection, corsConfig } from '@/middleware/securityMiddleware';
-import { logger } from '@/utils/logger';
-import { connectDatabase, initializeDatabase } from '@/config/database';
-import { connectRedis } from '@/config/redis';
+import { errorHandler } from './middleware/errorHandler';
+import { notFoundHandler } from './middleware/notFoundHandler';
+import { securityHeaders, requestSizeLimit, suspiciousActivityDetection, corsConfig } from './middleware/securityMiddleware';
+import { logger } from './utils/logger';
+import { connectDatabase, initializeDatabase } from './config/database';
+import { connectRedis } from './config/redis';
 
 // Load environment variables
 dotenv.config();
@@ -54,11 +53,7 @@ app.use(morgan('combined', {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Import main API routes
-import apiRoutes from '@/routes/index';
-
-// API routes
-app.use('/api/v1', apiRoutes);
+// API routes will be loaded after Redis connection
 
 // 404 handler
 app.use(notFoundHandler);
@@ -80,6 +75,10 @@ async function startServer() {
     // Connect to Redis
     await connectRedis();
     logger.info('Redis connected successfully');
+
+    // Import and setup API routes after Redis is connected
+    const apiRoutes = await import('./routes/index');
+    app.use('/api/v1', apiRoutes.default);
 
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);

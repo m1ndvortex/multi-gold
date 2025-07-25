@@ -8,7 +8,15 @@ import { logger } from '@/utils/logger';
 
 const router = Router();
 const prisma = new PrismaClient();
-const authService = new AuthService(prisma);
+
+// Lazy initialization of AuthService to ensure Redis is connected first
+let authService: AuthService | null = null;
+const getAuthService = (): AuthService => {
+  if (!authService) {
+    authService = new AuthService(prisma);
+  }
+  return authService;
+};
 
 /**
  * Extract device information from request
@@ -112,7 +120,7 @@ router.post('/register', [
     role: req.body.role,
   };
 
-  const user = await authService.register(registerData);
+  const user = await getAuthService().register(registerData);
 
   res.status(201).json({
     success: true,
@@ -146,7 +154,7 @@ router.post('/login', [
   };
 
   const deviceInfo = extractDeviceInfo(req);
-  const result = await authService.login(credentials, deviceInfo);
+  const result = await getAuthService().login(credentials, deviceInfo);
 
   if (result.requiresTwoFactor) {
     res.status(200).json({
@@ -179,7 +187,7 @@ router.post('/refresh', [
     .withMessage('Refresh token is required'),
 ], validateRequest, asyncHandler(async (req: Request, res: Response) => {
   const deviceInfo = extractDeviceInfo(req);
-  const tokens = await authService.refreshToken(req.body.refreshToken, deviceInfo);
+  const tokens = await getAuthService().refreshToken(req.body.refreshToken, deviceInfo);
 
   res.status(200).json({
     success: true,
@@ -197,7 +205,7 @@ router.post('/logout', [
     .notEmpty()
     .withMessage('Refresh token is required'),
 ], validateRequest, asyncHandler(async (req: Request, res: Response) => {
-  await authService.logout(req.body.refreshToken);
+  await getAuthService().logout(req.body.refreshToken);
 
   res.status(200).json({
     success: true,
@@ -238,7 +246,7 @@ router.post('/change-password', authMiddleware, [
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  await authService.changePassword(
+  await getAuthService().changePassword(
     req.user.id,
     req.body.currentPassword,
     req.body.newPassword
@@ -259,7 +267,7 @@ router.post('/2fa/setup', authMiddleware, asyncHandler(async (req: AuthRequest, 
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  const result = await authService.enableTwoFactor(req.user.id);
+  const result = await getAuthService().enableTwoFactor(req.user.id);
 
   res.status(200).json({
     success: true,
@@ -282,7 +290,7 @@ router.post('/2fa/verify', authMiddleware, [
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  await authService.verifyAndEnableTwoFactor(req.user.id, req.body.token);
+  await getAuthService().verifyAndEnableTwoFactor(req.user.id, req.body.token);
 
   res.status(200).json({
     success: true,
@@ -303,7 +311,7 @@ router.post('/2fa/disable', authMiddleware, [
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  await authService.disableTwoFactor(req.user.id, req.body.password);
+  await getAuthService().disableTwoFactor(req.user.id, req.body.password);
 
   res.status(200).json({
     success: true,
@@ -320,7 +328,7 @@ router.get('/sessions', authMiddleware, asyncHandler(async (req: AuthRequest, re
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  const sessions = await authService.getUserSessions(req.user.id);
+  const sessions = await getAuthService().getUserSessions(req.user.id);
 
   res.status(200).json({
     success: true,
@@ -337,7 +345,7 @@ router.delete('/sessions/:sessionId', authMiddleware, asyncHandler(async (req: A
     throw createError('User not authenticated', 401, 'NOT_AUTHENTICATED');
   }
 
-  await authService.revokeSession(req.user.id, req.params.sessionId);
+  await getAuthService().revokeSession(req.user.id, req.params.sessionId);
 
   res.status(200).json({
     success: true,

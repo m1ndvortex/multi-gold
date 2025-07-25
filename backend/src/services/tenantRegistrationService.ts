@@ -52,11 +52,17 @@ export interface TenantRegistrationResult {
 
 export class TenantRegistrationService {
   private prisma: PrismaClient;
-  private authService: AuthService;
+  private authService: AuthService | null = null;
 
   constructor(prisma: PrismaClient) {
     this.prisma = prisma;
-    this.authService = new AuthService(prisma);
+  }
+
+  private getAuthService(): AuthService {
+    if (!this.authService) {
+      this.authService = new AuthService(this.prisma);
+    }
+    return this.authService;
   }
 
   /**
@@ -81,7 +87,7 @@ export class TenantRegistrationService {
         });
 
         // Create admin user
-        const adminUser = await this.authService.register({
+        const adminUser = await this.getAuthService().register({
           email: registrationData.adminEmail,
           password: registrationData.adminPassword,
           name: registrationData.adminName,

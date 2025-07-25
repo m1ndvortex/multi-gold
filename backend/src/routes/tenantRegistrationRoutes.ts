@@ -11,7 +11,15 @@ import { logger } from '@/utils/logger';
 
 const router = Router();
 const prisma = new PrismaClient();
-const tenantRegistrationService = new TenantRegistrationService(prisma);
+
+// Lazy initialization to ensure Redis is connected first
+let tenantRegistrationService: TenantRegistrationService | null = null;
+const getTenantRegistrationService = (): TenantRegistrationService => {
+  if (!tenantRegistrationService) {
+    tenantRegistrationService = new TenantRegistrationService(prisma);
+  }
+  return tenantRegistrationService;
+};
 
 /**
  * Validation middleware
@@ -98,7 +106,7 @@ router.post('/register', [
     subscriptionPlan: req.body.subscriptionPlan,
   };
 
-  const result = await tenantRegistrationService.registerTenant(registrationData);
+  const result = await getTenantRegistrationService().registerTenant(registrationData);
 
   res.status(201).json({
     success: true,
@@ -139,7 +147,7 @@ router.post('/setup/complete', [
     notificationPreferences: req.body.notificationPreferences,
   };
 
-  await tenantRegistrationService.completeTenantSetup(req.tenant.id, setupData, req.user.id);
+  await getTenantRegistrationService().completeTenantSetup(req.tenant.id, setupData, req.user.id);
 
   res.json({
     success: true,
@@ -159,7 +167,7 @@ router.get('/setup/status', [
     throw createError('Authentication required', 401, 'NOT_AUTHENTICATED');
   }
 
-  const status = await tenantRegistrationService.getTenantSetupStatus(req.tenant.id);
+  const status = await getTenantRegistrationService().getTenantSetupStatus(req.tenant.id);
 
   res.json({
     success: true,
@@ -303,7 +311,7 @@ router.get('/registration-stats', [
     to: new Date(req.query.to as string),
   } : undefined;
 
-  const stats = await tenantRegistrationService.getRegistrationStats(dateRange);
+  const stats = await getTenantRegistrationService().getRegistrationStats(dateRange);
 
   res.json({
     success: true,

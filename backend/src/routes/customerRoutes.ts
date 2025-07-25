@@ -124,7 +124,7 @@ router.get('/',
 
     const result = await customerService.searchCustomers(tenantId, filters, page, limit);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         customers: result.customers,
@@ -161,7 +161,7 @@ router.get('/:id',
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         customer
@@ -183,7 +183,7 @@ router.post('/',
 
     const customer = await customerService.createCustomer(tenantId, req.body, req.user!.id);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: {
         customer
@@ -207,7 +207,7 @@ router.put('/:id',
     try {
       const customer = await customerService.updateCustomer(tenantId, req.params.id, req.body, req.user!.id);
 
-      res.json({
+      return res.json({
         success: true,
         data: {
           customer
@@ -242,7 +242,7 @@ router.delete('/:id',
     try {
       await customerService.deleteCustomer(tenantId, req.params.id);
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Customer deleted successfully'
       });
@@ -293,7 +293,7 @@ router.get('/:id/ledger',
 
     const ledgerResult = await customerService.getCustomerLedger(tenantId, req.params.id, page, limit);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         ledger: ledgerResult.entries,
@@ -342,7 +342,7 @@ router.post('/import',
         req.user!.id
       );
 
-      res.json({
+      return res.json({
         success: true,
         data: {
           imported: result.success,
@@ -351,7 +351,7 @@ router.post('/import',
         }
       });
     } catch (error: any) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'IMPORT_FAILED',
@@ -390,9 +390,9 @@ router.get('/export',
       
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.send(csvContent);
+      return res.send(csvContent);
     } catch (error: any) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'EXPORT_FAILED',
@@ -421,7 +421,7 @@ router.post('/:id/ledger',
         ...req.body
       }, req.user!.id);
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'Ledger entry created successfully'
       });
@@ -460,7 +460,7 @@ router.get('/:id/credit-check',
         parseFloat(req.query.amount as string)
       );
 
-      res.json({
+      return res.json({
         success: true,
         data: result
       });
@@ -488,7 +488,7 @@ router.get('/tags',
 
     const tags = await customerService.getCustomerTags(tenantId);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         tags
@@ -519,7 +519,7 @@ router.post('/tags',
         req.body.description
       );
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: {
           tag
@@ -549,7 +549,7 @@ router.get('/statistics',
 
     const statistics = await customerService.getCustomerStatistics(tenantId);
 
-    res.json({
+    return res.json({
       success: true,
       data: statistics
     });
